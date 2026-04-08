@@ -1,0 +1,22 @@
+# configs/data/nifty50.yaml
+
+ticker: "^NSEI"           # yfinance NIFTY 50 ticker
+start_date: "2000-01-01"
+end_date: "2025-01-01"
+frequency: "1d"
+
+returns:
+  method: "log"           # log or simple
+
+features:
+  - returns
+  - rolling_vol_20
+  - rolling_vol_60
+  - rolling_mean_20
+  - drawdown
+
+train_ratio: 0.7
+val_ratio: 0.1
+test_ratio: 0.2
+
+processed_path: "data/processed/nifty50.parquet"

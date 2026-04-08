@@ -1,0 +1,27 @@
+# configs/experiments/ood_testing.yaml
+
+experiment:
+  name: ood_crisis_test
+  seed: 42
+
+data:
+  config: configs/data/nifty50.yaml
+  # Train on stable period, test on crisis
+  stable_period:
+    start: "2003-01-01"
+    end: "2007-12-31"
+  crisis_periods:
+    - name: GFC
+      start: "2008-01-01"
+      end: "2009-12-31"
+    - name: COVID
+      start: "2020-01-01"
+      end: "2021-06-30"
+
+model:
+  type: transformer
+  quantile: 0.99           # Focus on extreme tail for OOD
+
+mlflow:
+  experiment_name: "ood_testing"
+  tracking_uri: "outputs/mlruns"

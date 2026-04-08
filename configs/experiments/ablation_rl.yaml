@@ -1,0 +1,33 @@
+# configs/experiments/ablation_rl.yaml
+
+experiment:
+  name: rl_ablation
+  seed: 42
+
+data:
+  config: configs/data/nifty50.yaml
+  window_size: 252
+  horizon: 1
+
+ablation_variants:
+  - name: full_rl
+    cvar_reward: true
+    risk_penalty: true
+  - name: no_cvar_reward
+    cvar_reward: false
+    risk_penalty: true
+  - name: no_risk_penalty
+    cvar_reward: true
+    risk_penalty: false
+  - name: baseline_rl
+    cvar_reward: false
+    risk_penalty: false
+
+model:
+  quantile: 0.95
+  hidden_dim: 128
+  num_layers: 2
+
+mlflow:
+  experiment_name: "rl_ablation"
+  tracking_uri: "outputs/mlruns"

@@ -1,0 +1,30 @@
+# Core
+numpy>=1.24
+pandas>=2.0
+scipy>=1.11
+pyyaml>=6.0
+
+# Data
+yfinance>=0.2.40
+
+# ML
+scikit-learn>=1.4
+xgboost>=2.0
+
+# DL / RL
+torch>=2.2
+
+# Statistical models
+arch>=6.3         # GARCH
+statsmodels>=0.14
+
+# Experiment tracking
+mlflow>=2.12
+
+# Visualization
+matplotlib>=3.8
+seaborn>=0.13
+
+# Utils
+tqdm>=4.66
+click>=8.1

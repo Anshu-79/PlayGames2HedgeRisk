@@ -1,0 +1,28 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+
+# Data
+data/raw/
+data/processed/
+
+# Outputs
+outputs/logs/
+outputs/models/
+outputs/metrics/
+outputs/plots/
+outputs/mlruns/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS
+.DS_Store

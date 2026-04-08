@@ -1,0 +1,33 @@
+# configs/experiments/rolling_window.yaml
+
+experiment:
+  name: rolling_window_backtest
+  seed: 42
+
+data:
+  config: configs/data/nifty50.yaml
+  window_size: 252        # 1 trading year
+  horizon: 1
+
+model:
+  type: transformer       # historical_sim | parametric | garch | caviar | svr | qgb | garch_svr | mdn | lstm | attention_lstm | transformer | lstm_mdn | rl_agent
+  quantile: 0.95          # 0.95 or 0.99
+
+training:
+  epochs: 50
+  lr: 0.001
+  batch_size: 64
+
+evaluation:
+  var_metrics:
+    - kupiec
+    - christoffersen
+    - violation_ratio
+  cvar_metrics:
+    - tail_mean_error
+    - joint_score
+    - es_backtest
+
+mlflow:
+  experiment_name: "rolling_window"
+  tracking_uri: "outputs/mlruns"
