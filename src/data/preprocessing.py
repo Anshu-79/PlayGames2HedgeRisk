@@ -12,7 +12,7 @@ def download_nifty50(ticker: str, start: str, end: str) -> pd.DataFrame:
     df = yf.download(ticker, start=start, end=end, auto_adjust=True)
     df.index = pd.to_datetime(df.index)
     df = df[["Open", "High", "Low", "Close", "Volume"]]
-    df.columns = [c.lower() for c in df.columns]
+    df.columns = [c[0].lower() for c in df.columns]
     df.dropna(inplace=True)
     print(f"Downloaded {len(df)} rows.")
     return df

@@ -9,10 +9,13 @@ import torch
 import torch.nn as nn
 from src.models.base import BaseRLAgent
 
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 # ---------------------------------------------------------------------------
 # Environment
 # ---------------------------------------------------------------------------
+
 
 class RiskEnv:
     """
@@ -23,9 +26,15 @@ class RiskEnv:
     Reward: penalize VaR violations + CVaR over-estimation
     """
 
-    def __init__(self, returns: np.ndarray, features: np.ndarray,
-                 window: int = 20, quantile: float = 0.95,
-                 cvar_penalty: float = 1.0, risk_penalty: float = 1.0):
+    def __init__(
+        self,
+        returns: np.ndarray,
+        features: np.ndarray,
+        window: int = 20,
+        quantile: float = 0.95,
+        cvar_penalty: float = 1.0,
+        risk_penalty: float = 1.0,
+    ):
         self.returns = returns
         self.features = features
         self.window = window
@@ -41,7 +50,7 @@ class RiskEnv:
         return self._get_obs()
 
     def _get_obs(self) -> np.ndarray:
-        return self.features[self.t - self.window: self.t].flatten()
+        return self.features[self.t - self.window : self.t].flatten()
 
     def step(self, action: float) -> tuple[np.ndarray, float, bool, dict]:
         """
@@ -51,7 +60,7 @@ class RiskEnv:
         var_pred = action
 
         # ---------- reward components ----------
-        violation = float(r_t < var_pred)        # 1 if loss exceeds VaR
+        violation = float(r_t < var_pred)  # 1 if loss exceeds VaR
 
         # Quantile calibration reward (penalize wrong violation rate)
         q = 1 - self.quantile
@@ -68,7 +77,11 @@ class RiskEnv:
 
         self.t += 1
         self.done = self.t >= len(self.returns)
-        obs = self._get_obs() if not self.done else np.zeros(self.window * self.features.shape[1])
+        obs = (
+            self._get_obs()
+            if not self.done
+            else np.zeros(self.window * self.features.shape[1])
+        )
         info = {"r_t": r_t, "var_pred": var_pred, "violation": violation}
         return obs, reward, self.done, info
 
@@ -80,6 +93,7 @@ class RiskEnv:
 # ---------------------------------------------------------------------------
 # Policy Network (placeholder)
 # ---------------------------------------------------------------------------
+
 
 class _PolicyNet(nn.Module):
     """
@@ -94,8 +108,8 @@ class _PolicyNet(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, 1),    # output: VaR estimate
-            nn.Tanh(),                    # bound output in [-1, 1]; scale downstream
+            nn.Linear(hidden_dim, 1),  # output: VaR estimate
+            nn.Tanh(),  # bound output in [-1, 1]; scale downstream
         )
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
@@ -105,6 +119,7 @@ class _PolicyNet(nn.Module):
 # ---------------------------------------------------------------------------
 # RL Agent (placeholder — REINFORCE skeleton)
 # ---------------------------------------------------------------------------
+
 
 class RLVaRAgent(BaseRLAgent):
     """
@@ -121,9 +136,15 @@ class RLVaRAgent(BaseRLAgent):
       - implement CVaR-aware reward shaping
     """
 
-    def __init__(self, quantile: float = 0.95, hidden_dim: int = 128,
-                 lr: float = 1e-3, gamma: float = 0.99,
-                 cvar_reward: bool = True, risk_penalty: bool = True):
+    def __init__(
+        self,
+        quantile: float = 0.95,
+        hidden_dim: int = 128,
+        lr: float = 1e-3,
+        gamma: float = 0.99,
+        cvar_reward: bool = True,
+        risk_penalty: bool = True,
+    ):
         super().__init__(quantile)
         self.hidden_dim = hidden_dim
         self.lr = lr
@@ -134,7 +155,7 @@ class RLVaRAgent(BaseRLAgent):
         self._optimizer = None
 
     def _init_policy(self, obs_dim: int):
-        self._policy = _PolicyNet(obs_dim, self.hidden_dim)
+        self._policy = _PolicyNet(obs_dim, self.hidden_dim).to(DEVICE)
         self._optimizer = torch.optim.Adam(self._policy.parameters(), lr=self.lr)
 
     def train(self, env: RiskEnv, n_episodes: int = 100) -> None:
@@ -159,7 +180,9 @@ class RLVaRAgent(BaseRLAgent):
 
             # TODO: collect trajectories, compute returns, update policy
             if ep % 10 == 0:
-                print(f"[RL] Episode {ep:4d} | Total Reward: {ep_reward:.4f}  [PLACEHOLDER]")
+                print(
+                    f"[RL] Episode {ep:4d} | Total Reward: {ep_reward:.4f}  [PLACEHOLDER]"
+                )
 
     def evaluate(self, env: RiskEnv) -> dict:
         """Run policy on env, return VaR predictions and violation stats."""
@@ -170,9 +193,14 @@ class RLVaRAgent(BaseRLAgent):
         while not done:
             if self._policy is not None:
                 with torch.no_grad():
-                    action = self._policy(torch.tensor(obs, dtype=torch.float32)).item() * 0.05
+                    action = (
+                        self._policy(
+                            torch.tensor(obs, dtype=torch.float32).to(DEVICE)
+                        ).item()
+                        * 0.05
+                    )
             else:
-                action = np.random.uniform(-0.05, 0.0)   # fallback
+                action = np.random.uniform(-0.05, 0.0)  # fallback
 
             obs, reward, done, info = env.step(action)
             var_preds.append(info["var_pred"])
@@ -189,7 +217,10 @@ class RLVaRAgent(BaseRLAgent):
         if self._policy is None:
             raise RuntimeError("Agent not trained yet.")
         with torch.no_grad():
-            return self._policy(torch.tensor(obs, dtype=torch.float32)).item() * 0.05
+            return (
+                self._policy(torch.tensor(obs, dtype=torch.float32).to(DEVICE)).item()
+                * 0.05
+            )
 
     def save(self, path: str) -> None:
         torch.save(self._policy.state_dict(), path)

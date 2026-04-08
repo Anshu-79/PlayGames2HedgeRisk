@@ -5,14 +5,17 @@ import torch
 import torch.nn as nn
 from src.models.base import BaseModel
 
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 def quantile_loss(preds: torch.Tensor, targets: torch.Tensor, q: float) -> torch.Tensor:
     errors = targets - preds
     return torch.mean(torch.where(errors >= 0, q * errors, (q - 1) * errors))
 
 
-def es_loss(var_pred: torch.Tensor, cvar_pred: torch.Tensor,
-            targets: torch.Tensor, q: float) -> torch.Tensor:
+def es_loss(
+    var_pred: torch.Tensor, cvar_pred: torch.Tensor, targets: torch.Tensor, q: float
+) -> torch.Tensor:
     """Expected Shortfall loss for joint VaR-CVaR training."""
     exceed = (targets < var_pred).float()
     es_term = exceed * (targets - cvar_pred) ** 2
@@ -22,8 +25,9 @@ def es_loss(var_pred: torch.Tensor, cvar_pred: torch.Tensor,
 class _QuantileLSTM(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_layers, dropout):
         super().__init__()
-        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers,
-                            batch_first=True, dropout=dropout)
+        self.lstm = nn.LSTM(
+            input_dim, hidden_dim, num_layers, batch_first=True, dropout=dropout
+        )
         self.head = nn.Linear(hidden_dim, 1)
 
     def forward(self, x):
@@ -34,8 +38,16 @@ class _QuantileLSTM(nn.Module):
 class LSTMQuantile(BaseModel):
     """Quantile LSTM for VaR."""
 
-    def __init__(self, quantile=0.95, hidden_dim=64, num_layers=2,
-                 seq_len=20, epochs=50, lr=1e-3, dropout=0.1):
+    def __init__(
+        self,
+        quantile=0.95,
+        hidden_dim=64,
+        num_layers=2,
+        seq_len=20,
+        epochs=50,
+        lr=1e-3,
+        dropout=0.1,
+    ):
         super().__init__(quantile)
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
@@ -49,16 +61,22 @@ class LSTMQuantile(BaseModel):
         xs = []
         ys = [] if y is not None else None
         for i in range(self.seq_len, len(X)):
-            xs.append(X[i - self.seq_len:i])
+            xs.append(X[i - self.seq_len : i])
             if y is not None:
                 ys.append(y[i])
-        Xt = torch.tensor(np.array(xs), dtype=torch.float32)
-        yt = torch.tensor(np.array(ys), dtype=torch.float32) if y is not None else None
+        Xt = torch.tensor(np.array(xs), dtype=torch.float32).to(DEVICE)
+        yt = (
+            torch.tensor(np.array(ys), dtype=torch.float32).to(DEVICE)
+            if y is not None
+            else None
+        )
         return Xt, yt
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> None:
         Xt, yt = self._make_sequences(X, y)
-        self._net = _QuantileLSTM(X.shape[1], self.hidden_dim, self.num_layers, self.dropout)
+        self._net = _QuantileLSTM(
+            X.shape[1], self.hidden_dim, self.num_layers, self.dropout
+        ).to(DEVICE)
         opt = torch.optim.Adam(self._net.parameters(), lr=self.lr)
         q = 1 - self.quantile
 
@@ -76,7 +94,7 @@ class LSTMQuantile(BaseModel):
         self._net.eval()
         Xt, _ = self._make_sequences(X)
         with torch.no_grad():
-            return self._net(Xt).numpy()
+            return self._net(Xt).cpu().numpy()
 
 
 class _AttentionLSTM(nn.Module):
@@ -87,9 +105,9 @@ class _AttentionLSTM(nn.Module):
         self.head = nn.Linear(hidden_dim, 1)
 
     def forward(self, x):
-        out, _ = self.lstm(x)             # (B, T, H)
-        attn_w = torch.softmax(self.attn(out), dim=1)   # (B, T, 1)
-        context = (attn_w * out).sum(dim=1)              # (B, H)
+        out, _ = self.lstm(x)  # (B, T, H)
+        attn_w = torch.softmax(self.attn(out), dim=1)  # (B, T, 1)
+        context = (attn_w * out).sum(dim=1)  # (B, H)
         return self.head(context).squeeze(-1)
 
 
@@ -98,7 +116,9 @@ class AttentionLSTM(LSTMQuantile):
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> None:
         Xt, yt = self._make_sequences(X, y)
-        self._net = _AttentionLSTM(X.shape[1], self.hidden_dim, self.num_layers)
+        self._net = _AttentionLSTM(X.shape[1], self.hidden_dim, self.num_layers).to(
+            DEVICE
+        )
         opt = torch.optim.Adam(self._net.parameters(), lr=self.lr)
         q = 1 - self.quantile
 
@@ -130,17 +150,33 @@ class _TransformerEncoder(nn.Module):
 class TransformerEncoder(LSTMQuantile):
     """Transformer Encoder for VaR."""
 
-    def __init__(self, quantile=0.95, d_model=64, nhead=4, num_layers=2,
-                 seq_len=20, epochs=50, lr=1e-3, **kwargs):
-        super().__init__(quantile, hidden_dim=d_model, num_layers=num_layers,
-                         seq_len=seq_len, epochs=epochs, lr=lr)
+    def __init__(
+        self,
+        quantile=0.95,
+        d_model=64,
+        nhead=4,
+        num_layers=2,
+        seq_len=20,
+        epochs=50,
+        lr=1e-3,
+        **kwargs,
+    ):
+        super().__init__(
+            quantile,
+            hidden_dim=d_model,
+            num_layers=num_layers,
+            seq_len=seq_len,
+            epochs=epochs,
+            lr=lr,
+        )
         self.d_model = d_model
         self.nhead = nhead
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> None:
         Xt, yt = self._make_sequences(X, y)
-        self._net = _TransformerEncoder(X.shape[1], self.d_model, self.nhead,
-                                        self.num_layers, self.seq_len)
+        self._net = _TransformerEncoder(
+            X.shape[1], self.d_model, self.nhead, self.num_layers, self.seq_len
+        ).to(DEVICE)
         opt = torch.optim.Adam(self._net.parameters(), lr=self.lr)
         q = 1 - self.quantile
 
@@ -181,7 +217,9 @@ class JointTransformer(TransformerEncoder):
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> None:
         Xt, yt = self._make_sequences(X, y)
-        self._net = _JointTransformer(X.shape[1], self.d_model, self.nhead, self.num_layers)
+        self._net = _JointTransformer(
+            X.shape[1], self.d_model, self.nhead, self.num_layers
+        ).to(DEVICE)
         opt = torch.optim.Adam(self._net.parameters(), lr=self.lr)
         q = 1 - self.quantile
 
@@ -200,11 +238,11 @@ class JointTransformer(TransformerEncoder):
         Xt, _ = self._make_sequences(X)
         with torch.no_grad():
             var, _ = self._net(Xt)
-        return var.numpy()
+        return var.cpu().numpy()
 
     def predict_cvar(self, X: np.ndarray) -> np.ndarray:
         self._net.eval()
         Xt, _ = self._make_sequences(X)
         with torch.no_grad():
             _, cvar = self._net(Xt)
-        return cvar.numpy()
+        return cvar.cpu().numpy()
