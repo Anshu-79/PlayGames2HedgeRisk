@@ -2,8 +2,10 @@
 
 import numpy as np
 from scipy import stats
+from scipy.optimize import minimize
 from arch import arch_model
 from src.models.base import BaseModel
+from numba import jit
 
 
 class HistoricalSimulation(BaseModel):
@@ -55,15 +57,14 @@ class ParametricVaR(BaseModel):
     def predict_cvar(self, X: np.ndarray) -> np.ndarray:
         q = 1 - self.quantile
         if self.dist == "normal":
-            cvar = self._mu - self._sigma * (
-                stats.norm.pdf(stats.norm.ppf(q)) / q
-            )
+            cvar = self._mu - self._sigma * (stats.norm.pdf(stats.norm.ppf(q)) / q)
         else:
             # Analytical CVaR for Student-t
             t_ppf = stats.t.ppf(q, df=self._df)
             cvar = self._mu - self._sigma * (
-                stats.t.pdf(t_ppf, df=self._df) * (self._df + t_ppf**2) /
-                ((self._df - 1) * q)
+                stats.t.pdf(t_ppf, df=self._df)
+                * (self._df + t_ppf**2)
+                / ((self._df - 1) * q)
             )
         return np.full(len(X), cvar)
 
@@ -81,7 +82,7 @@ class GARCHModel(BaseModel):
         self._result = None
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> None:
-        returns_pct = y * 100   # arch expects pct returns
+        returns_pct = y * 100  # arch expects pct returns
         am = arch_model(returns_pct, vol="Garch", p=self.p, q=self.q, dist="Normal")
         self._result = am.fit(disp="off")
         self.is_fitted = True
@@ -100,52 +101,111 @@ class GARCHModel(BaseModel):
         return -(sigma * stats.norm.pdf(stats.norm.ppf(q)) / q)
 
 
+@jit(nopython=True)
+def caviar_quantile_loss(beta, returns, q, initial_var):
+    """
+    C-level code for computing pinball loss for CAViaR model
+    """
+
+    n = len(returns)
+    var = np.zeros(n)
+    var[0] = initial_var
+
+    # Recursive VaR (linear in past return, not abs)
+    for t in range(1, n):
+        var[t] = beta[0] + beta[1] * var[t - 1] + beta[2] * returns[t - 1]
+
+    # Correct pinball loss
+    loss = 0.0
+    for i in range(n):
+        resid = returns[i] - var[i]
+
+        if resid < 0:
+            loss += (q - 1.0) * resid
+        else:
+            loss += q * resid
+
+    return loss / n
+
+
+@jit(nopython=True)
+def compute_fitted_series(beta, returns, initial_var):
+    n = len(returns)
+    var = np.zeros(n)
+    var[0] = initial_var
+
+    for t in range(1, n):
+        var[t] = beta[0] + beta[1] * var[t - 1] + beta[2] * returns[t - 1]
+
+    return var
+
+
 class CAViaR(BaseModel):
     """
-    CAViaR (Conditional Autoregressive VaR) — quantile regression.
-    Simplified Symmetric Absolute Value specification.
-    CAViaR: VaR_t = beta0 + beta1 * VaR_{t-1} + beta2 * |r_{t-1}|
-    Optimized via quantile loss minimization.
+    CAViaR (Conditional Autoregressive VaR)
+
+    VaR_t = beta0 + beta1 * VaR_{t-1} + beta2 * r_{t-1}
     """
 
     def __init__(self, quantile: float = 0.95, n_iter: int = 1000):
         super().__init__(quantile)
         self.n_iter = n_iter
         self._beta = None
-
-    def _quantile_loss(self, beta: np.ndarray, returns: np.ndarray) -> float:
-        q = 1 - self.quantile
-        n = len(returns)
-        var = np.zeros(n)
-        var[0] = np.quantile(returns, q)
-        for t in range(1, n):
-            var[t] = beta[0] + beta[1] * var[t - 1] + beta[2] * abs(returns[t - 1])
-        resid = returns - var
-        loss = np.where(resid < 0, q * resid, (q - 1) * resid)
-        return np.mean(loss)
+        self._cvar_slope = None
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> None:
-        from scipy.optimize import minimize
-        beta0 = np.array([0.01, 0.8, 0.1])
+        q = 1 - self.quantile
+
+        # Initial VaR (should already be negative for left tail)
+        initial_var = np.quantile(y, q)
+
+        beta0 = np.array([initial_var, 0.95, -0.05])
+
+        # Enforce correct sign behavior
+        bounds = [
+            (-1.0, 0.0),  # beta0 (negative)
+            (0.0, 0.999),  # persistence
+            (-1.0, 0.0),  # response to returns (negative)
+        ]
+
         result = minimize(
-            self._quantile_loss,
-            beta0,
-            args=(y,),
-            method="Nelder-Mead",
+            caviar_quantile_loss,
+            x0=beta0,
+            args=(y, q, initial_var),
+            method="SLSQP",
+            bounds=bounds,
             options={"maxiter": self.n_iter},
         )
+
         self._beta = result.x
-        self._last_var = np.quantile(y, 1 - self.quantile)
+
+        fitted_var = compute_fitted_series(self._beta, y, initial_var)
+
+        self._last_var = fitted_var[-1]
         self._last_ret = y[-1]
+
+        # --- CVaR slope ---
+        tail_mask = y <= fitted_var
+        if np.any(tail_mask) and np.mean(fitted_var[tail_mask]) != 0:
+            self._cvar_slope = np.mean(y[tail_mask]) / np.mean(fitted_var[tail_mask])
+        else:
+            self._cvar_slope = 1.1
+
         self.is_fitted = True
+
+    def _compute_var_series(self, returns, beta, initial_var):
+        n = len(returns)
+        var = np.zeros(n)
+        var[0] = initial_var
+        for t in range(1, n):
+            var[t] = beta[0] + beta[1] * var[t - 1] + beta[2] * returns[t - 1]
+        return var
 
     def predict_var(self, X: np.ndarray) -> np.ndarray:
         b = self._beta
-        preds = []
-        var_t = self._last_var
-        ret_t = self._last_ret
-        for _ in range(len(X)):
-            var_t = b[0] + b[1] * var_t + b[2] * abs(ret_t)
-            preds.append(var_t)
-            ret_t = 0.0   # no future return known; use 0 for multi-step
-        return np.array(preds)
+        v_next = b[0] + b[1] * self._last_var + b[2] * self._last_ret
+        return np.full(len(X), v_next)
+
+    def predict_cvar(self, X: np.ndarray) -> np.ndarray:
+        var_pred = self.predict_var(X)
+        return var_pred * self._cvar_slope
