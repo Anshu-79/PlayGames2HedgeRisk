@@ -16,7 +16,6 @@ def run_ablation(returns: np.ndarray, features: np.ndarray, config: dict) -> dic
     Systematically disable RL components and measure performance drop.
     Variants defined in config['ablation_variants'].
     """
-    mlflow.set_tracking_uri(config["mlflow"]["tracking_uri"])
     mlflow.set_experiment(config["mlflow"]["experiment_name"])
 
     quantile = config["model"]["quantile"]
@@ -72,7 +71,6 @@ def run_stability(model_cls, model_kwargs: dict,
     """
     Train same model with multiple seeds; report mean ± std of metrics.
     """
-    mlflow.set_tracking_uri(config["mlflow"]["tracking_uri"])
     mlflow.set_experiment(config["mlflow"]["experiment_name"])
 
     from src.experiments.rolling_window import rolling_backtest

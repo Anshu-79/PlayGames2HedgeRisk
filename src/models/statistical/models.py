@@ -40,10 +40,15 @@ class ParametricVaR(BaseModel):
         self._df = None  # for student-t only
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> None:
-        self._mu = np.mean(y)
-        self._sigma = np.std(y)
-        if self.dist == "student-t":
-            self._df, _, _ = stats.t.fit(y)
+        if self.dist == "normal":
+            self._mu = np.mean(y)
+            self._sigma = np.std(y)
+        else:
+            # df = degrees of freedom (nu)
+            # loc = center (mu)
+            # scale = dispersion (gamma)
+            self._df, self._mu, self._sigma = stats.t.fit(y)
+        
         self.is_fitted = True
 
     def predict_var(self, X: np.ndarray) -> np.ndarray:

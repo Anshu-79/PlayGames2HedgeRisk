@@ -28,7 +28,7 @@ def run(model, returns: np.ndarray, features: np.ndarray,
     Expects var_preds / cvar_preds aligned with returns.
     """
     set_seed(config["experiment"]["seed"])
-    mlflow.set_tracking_uri(config["mlflow"]["tracking_uri"])
+
     mlflow.set_experiment(config["mlflow"]["experiment_name"])
 
     regimes = label_regimes(returns)

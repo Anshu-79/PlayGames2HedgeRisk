@@ -4,6 +4,7 @@
 import click
 import numpy as np
 import pandas as pd
+import mlflow
 
 from src.utils.config import load_config
 from src.utils.seed import set_seed
@@ -13,7 +14,6 @@ from src.data.preprocessing import preprocess, load_processed
 
 
 logger = get_logger("main")
-
 
 def _load_data(data_cfg: dict):
     """Load or download+process NIFTY 50 data."""
@@ -31,6 +31,7 @@ def _load_data(data_cfg: dict):
     returns  = df["returns"].values
     features = df[feature_cols].values
     return df, returns, features
+
 
 
 # ---------------------------------------------------------------------------
@@ -155,4 +156,5 @@ def benchmark(config, all_models):
 
 
 if __name__ == "__main__":
+    mlflow.set_tracking_uri("sqlite:///outputs/mlflow.db")
     cli()

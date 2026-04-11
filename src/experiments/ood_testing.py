@@ -14,7 +14,7 @@ def run(model, df: pd.DataFrame, config: dict) -> dict:
     df must have DatetimeIndex with 'returns' and feature columns.
     """
     set_seed(config["experiment"]["seed"])
-    mlflow.set_tracking_uri(config["mlflow"]["tracking_uri"])
+
     mlflow.set_experiment(config["mlflow"]["experiment_name"])
 
     feature_cols = [c for c in df.columns if c not in ["returns", "close",
