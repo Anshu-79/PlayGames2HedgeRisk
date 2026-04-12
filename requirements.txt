@@ -4,6 +4,9 @@ pandas>=2.0
 scipy>=1.11
 pyyaml>=6.0
 
+# Computation
+numba>=0.55
+
 # Data
 yfinance>=0.2.40
 

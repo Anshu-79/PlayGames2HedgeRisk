@@ -14,8 +14,11 @@ pip install -e .
 ## Run experiments
 
 ```bash
-# Rolling window backtest (single model)
+# Rolling window backtest (default model)
 python main.py rolling --config configs/experiments/rolling_window.yaml
+
+# Rolling window backtest (specific model)
+python main.py rolling --config configs/experiments/rolling_window.yaml -m historical_sim
 
 # Full benchmark (all models)
 python main.py benchmark --config configs/experiments/rolling_window.yaml --all-models

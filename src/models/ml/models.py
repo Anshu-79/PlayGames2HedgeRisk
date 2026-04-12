@@ -2,6 +2,9 @@
 
 import numpy as np
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.data import DataLoader, TensorDataset
 from sklearn.svm import SVR
 from sklearn.preprocessing import StandardScaler
 from xgboost import XGBRegressor
@@ -44,14 +47,20 @@ class QuantileGradientBoosting(BaseModel):
         alpha = 1 - quantile
         self._var_model = XGBRegressor(
             n_estimators=n_estimators,
+            max_depth=4,
+            learning_rate=0.05,
+            subsample=0.8,
+            colsample_bytree=0.8,
             objective="reg:quantileerror",
             quantile_alpha=alpha,
             tree_method="hist",
+            # device='cuda'
         )
         self._cvar_model = XGBRegressor(
             n_estimators=n_estimators,
             objective="reg:squarederror",
             tree_method="hist",
+            # device='cuda'
         )
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> None:
@@ -59,11 +68,14 @@ class QuantileGradientBoosting(BaseModel):
 
         # CVaR: train on tail samples only
         var_preds = self._var_model.predict(X)
+        X_cvar = np.concatenate([X, var_preds.reshape(-1, 1)], axis=1)
+
         tail_mask = y <= var_preds
-        if tail_mask.sum() > 10:
-            self._cvar_model.fit(X[tail_mask], y[tail_mask])
+
+        if tail_mask.mean() > 0.01:
+            self._cvar_model.fit(X_cvar[tail_mask], y[tail_mask])
         else:
-            self._cvar_model.fit(X, y)
+            self._cvar_model.fit(X_cvar, y)
 
         self.is_fitted = True
 
@@ -71,7 +83,12 @@ class QuantileGradientBoosting(BaseModel):
         return self._var_model.predict(X)
 
     def predict_cvar(self, X: np.ndarray) -> np.ndarray:
-        return self._cvar_model.predict(X)
+        var_preds = self._var_model.predict(X)
+        X_cvar = np.concatenate([X, var_preds.reshape(-1, 1)], axis=1)
+
+        cvar_preds = self._cvar_model.predict(X_cvar)
+
+        return np.minimum(cvar_preds, var_preds)
 
 
 class GARCHSVRModel(BaseModel):
@@ -115,7 +132,7 @@ class GARCHSVRModel(BaseModel):
 class MixtureDensityNetwork(BaseModel):
     """
     Mixture Density Network (MDN) — probabilistic model.
-    Outputs mixture of Gaussians; VaR/CVaR computed analytically.
+    Outputs mixture of Gaussians; VaR/CVaR computed using Monte Carlo simulations
     """
 
     def __init__(
@@ -147,7 +164,6 @@ class MixtureDensityNetwork(BaseModel):
         ).to(DEVICE)
 
     def _mdn_loss(self, pi, mu, sigma, y):
-        import torch
         import torch.distributions as D
 
         mix = D.Categorical(pi)

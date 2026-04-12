@@ -73,6 +73,7 @@ class LSTMQuantile(BaseModel):
         return Xt, yt
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> None:
+        self._history = X[-self.seq_len:]  # cache last seq_len rows
         Xt, yt = self._make_sequences(X, y)
         self._net = _QuantileLSTM(
             X.shape[1], self.hidden_dim, self.num_layers, self.dropout
@@ -92,10 +93,10 @@ class LSTMQuantile(BaseModel):
 
     def predict_var(self, X: np.ndarray) -> np.ndarray:
         self._net.eval()
-        Xt, _ = self._make_sequences(X)
+        X_full = np.concatenate([self._history, X], axis=0)  # prepend history
+        Xt, _ = self._make_sequences(X_full)
         with torch.no_grad():
             return self._net(Xt).cpu().numpy()
-
 
 class _AttentionLSTM(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_layers):
@@ -115,6 +116,7 @@ class AttentionLSTM(LSTMQuantile):
     """Attention-LSTM for VaR."""
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> None:
+        self._history = X[-self.seq_len:]  # cache last seq_len rows
         Xt, yt = self._make_sequences(X, y)
         self._net = _AttentionLSTM(X.shape[1], self.hidden_dim, self.num_layers).to(
             DEVICE
@@ -173,6 +175,7 @@ class TransformerEncoder(LSTMQuantile):
         self.nhead = nhead
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> None:
+        self._history = X[-self.seq_len:]  # cache last seq_len rows
         Xt, yt = self._make_sequences(X, y)
         self._net = _TransformerEncoder(
             X.shape[1], self.d_model, self.nhead, self.num_layers, self.seq_len
@@ -216,6 +219,7 @@ class JointTransformer(TransformerEncoder):
     """
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> None:
+        self._history = X[-self.seq_len:]  # cache last seq_len rows
         Xt, yt = self._make_sequences(X, y)
         self._net = _JointTransformer(
             X.shape[1], self.d_model, self.nhead, self.num_layers
@@ -235,14 +239,16 @@ class JointTransformer(TransformerEncoder):
 
     def predict_var(self, X: np.ndarray) -> np.ndarray:
         self._net.eval()
-        Xt, _ = self._make_sequences(X)
+        X_full = np.concatenate([self._history, X], axis=0)
+        Xt, _ = self._make_sequences(X_full)
         with torch.no_grad():
             var, _ = self._net(Xt)
         return var.cpu().numpy()
 
     def predict_cvar(self, X: np.ndarray) -> np.ndarray:
         self._net.eval()
-        Xt, _ = self._make_sequences(X)
+        X_full = np.concatenate([self._history, X], axis=0)
+        Xt, _ = self._make_sequences(X_full)
         with torch.no_grad():
             _, cvar = self._net(Xt)
         return cvar.cpu().numpy()
